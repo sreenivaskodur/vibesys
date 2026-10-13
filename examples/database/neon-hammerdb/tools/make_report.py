@@ -6,7 +6,6 @@ import gzip
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from bisect import bisect_right
@@ -350,7 +349,9 @@ def profiles(d, files_dir, tag):
     if svg.exists() and svg.stat().st_size > 1000:
         files_dir.mkdir(parents=True, exist_ok=True)
         dst = files_dir / f"{tag}_pageserver_flamegraph.svg"
-        shutil.copy(svg, dst)
+        # Drop the DOCTYPE (with its DTD URL) that inferno writes; viewers and
+        # artifact hosts reject XML with DTD declarations.
+        dst.write_text(re.sub(r"<!DOCTYPE[^>]*>", "", svg.read_text(errors="replace"), count=1))
         out["flamegraph"] = f"files/{dst.name}"
     return out
 
