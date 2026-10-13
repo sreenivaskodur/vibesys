@@ -18,10 +18,13 @@ Silicon (18 cores, 64 GB, one internal NVMe SSD, APFS).
 
 ## The candidate
 
-- `neon/` is the candidate: the whole Neon tree at upstream commit `fa50421`,
-  with its patched PostgreSQL 14–17 under `neon/vendor/postgres-v1x/`. Any file
-  in `neon/` may change: Rust services, the `neon` Postgres extension under
-  `neon/pgxn/`, the Postgres forks, build flags.
+- `neon/` and `postgres-src/` are the candidate: the whole Neon tree at
+  upstream commit `fa50421`, and its patched PostgreSQL 14–17 at
+  `postgres-src/v1x/` (Neon's `vendor/postgres-v1x` submodules, pinned at the
+  same commits). Any file in either may change: Rust services, the `neon`
+  Postgres extension under `neon/pgxn/`, the Postgres forks, build flags.
+  The benchmark links `neon/vendor/postgres-v1x` to `postgres-src/v1x` before
+  building; edit Postgres under `postgres-src/`.
 - `_ref_neon/` is a pristine copy for comparison. Do not edit it.
 - `benchmark/` and `accuracy_checker/` are the trusted evaluator. They are
   read-only to you.

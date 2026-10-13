@@ -117,10 +117,45 @@ def ensure_tools() -> None:
     run(["bash", str(HERE / "setup_tools.sh"), str(TOOLS_DIR)], timeout=1800)
 
 
+PG_VERSIONS = ("14", "15", "16", "17")
+POSTGRES_SRC = PROJECT_ROOT / "postgres-src"
+
+
+def link_postgres_sources() -> None:
+    """Point neon/vendor/postgres-v1x at postgres-src/v1x (idempotent).
+
+    The Postgres trees are workspace sources under postgres-src/ because the
+    neon clone already holds empty submodule placeholders at vendor/. A full
+    developer checkout (vendor/ populated, no postgres-src/) is left alone.
+    """
+    for v in PG_VERSIONS:
+        link = NEON / "vendor" / f"postgres-v{v}"
+        target = POSTGRES_SRC / f"v{v}"
+        if not target.is_dir():
+            if (link / "configure").exists():
+                continue
+            raise HarnessError(
+                f"no Postgres {v} source: neither {target} nor {link}/configure exists"
+            )
+        if link.is_symlink():
+            if link.resolve() == target.resolve():
+                continue
+            link.unlink()
+        elif link.is_dir():
+            if any(link.iterdir()):
+                raise HarnessError(
+                    f"{link} is a populated directory and {target} also exists; remove one"
+                )
+            link.rmdir()
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(Path("..") / ".." / "postgres-src" / f"v{v}")
+
+
 def build_candidate() -> float:
     """Release build of neon/ (Rust + patched Postgres). Incremental across rounds. Returns seconds."""
     if not (NEON / "Makefile").exists():
         raise HarnessError(f"{NEON} is missing the Neon source tree")
+    link_postgres_sources()
     start = time.monotonic()
     jobs = str(os.cpu_count() or 8)
     run(

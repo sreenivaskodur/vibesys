@@ -12,7 +12,7 @@ task and its rules.
 
 | Path | Role |
 |---|---|
-| `vibesys.input.toml` | Pins the candidate: Neon `fa50421` at `neon/`, its four patched Postgres trees (submodules upstream) at `neon/vendor/postgres-v1x`, and a pristine `_ref_neon/` for the durability diff. |
+| `vibesys.input.toml` | Pins the candidate: Neon `fa50421` at `neon/`, its four patched Postgres trees (submodules upstream) at `postgres-src/v1x`, and a pristine `_ref_neon/` for the durability diff. Workspace sources cannot clone into neon's empty submodule placeholders, so `benchmark/harness.py` links `neon/vendor/postgres-v1x` to `postgres-src/v1x` before each build (ignored by the root `.gitignore`). |
 | `objectives.toml` | `tpcc_nopm` (max), `tpcc_neworder_p95_ms` (min), `tpch_geomean_s` (min). |
 | `benchmark/benchmark.py` | Trusted benchmark. Builds `neon/`, starts a fresh cluster, runs TPROC-C (50 warehouses, 16 VU, 1+5 min) and TPROC-H (SF10, 22 queries), emits protocol-2 records. |
 | `benchmark/harness.py` | Shared build, cluster and HammerDB driver, with the fixed compute settings. |
@@ -77,6 +77,7 @@ All take `NEON_ROOT` (a built Neon checkout) and write under `RESULTS_DIR`
 | `tools/exp/setup_golden.sh` | Loads TPROC-C and TPROC-H once into a golden `neon_local` cluster. |
 | `tools/exp/run_exp.sh <label> <neon_root>` | One A/B run on a copy-on-write branch of the golden data, with any build tree's binaries. Alternate baseline and candidate runs to cancel drift. |
 | `tools/exp/fsync_bench.c`, `fsync_conc.c` | Latency of `fsync`, `F_FULLFSYNC`, `F_BARRIERFSYNC` and `O_DSYNC`, single and concurrent. |
+| `tools/exp/fullfsync_prealloc.c` | `F_FULLFSYNC` latency for appends into sparse, zero-filled and preallocated 16 MiB segments. |
 
 ## Baseline measurements
 
