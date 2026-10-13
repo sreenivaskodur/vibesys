@@ -15,8 +15,8 @@ result_protocol = 2
 # Candidate: upstream Neon, plus its four patched Postgres trees. Upstream they are
 # git submodules; workspace sources do not initialize submodules and refuse to clone
 # into neon's empty submodule placeholders, so each tree is pinned (at the commit in
-# neon's vendor/revisions.json) under postgres-src/, and benchmark/harness.py links
-# neon/vendor/postgres-v1x to it before building.
+# neon's vendor/revisions.json) under postgres-src/, and benchmark/harness.py copies them into
+# neon/vendor/postgres-v1x before building (a symlink breaks the VPATH configure).
 [[workspace.sources]]
 name = "neon"
 repo = "https://github.com/neondatabase/neon"

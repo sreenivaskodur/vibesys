@@ -128,41 +128,65 @@ PG_VERSIONS = ("14", "15", "16", "17")
 POSTGRES_SRC = PROJECT_ROOT / "postgres-src"
 
 
-def link_postgres_sources() -> None:
-    """Point neon/vendor/postgres-v1x at postgres-src/v1x (idempotent).
+def sync_postgres_sources() -> None:
+    """Mirror postgres-src/v1x into neon/vendor/postgres-v1x as real files (idempotent).
 
     The Postgres trees are workspace sources under postgres-src/ because the
-    neon clone already holds empty submodule placeholders at vendor/. A full
-    developer checkout (vendor/ populated, no postgres-src/) is left alone.
+    neon clone already holds empty submodule placeholders at vendor/. They are
+    copied rather than symlinked: Postgres's VPATH configure resolves paths
+    through a symlinked source dir and breaks the build tree. Only files whose
+    size or mtime differ are copied (mtimes preserved), so make stays
+    incremental; files removed from postgres-src/ are removed from vendor/.
+    A full developer checkout (vendor/ populated, no postgres-src/) is left alone.
     """
     for v in PG_VERSIONS:
-        link = NEON / "vendor" / f"postgres-v{v}"
-        target = POSTGRES_SRC / f"v{v}"
-        if not target.is_dir():
-            if (link / "configure").exists():
+        dest = NEON / "vendor" / f"postgres-v{v}"
+        src = POSTGRES_SRC / f"v{v}"
+        if not src.is_dir():
+            if (dest / "configure").exists():
                 continue
-            raise HarnessError(
-                f"no Postgres {v} source: neither {target} nor {link}/configure exists"
-            )
-        if link.is_symlink():
-            if link.resolve() == target.resolve():
-                continue
-            link.unlink()
-        elif link.is_dir():
-            if any(link.iterdir()):
-                raise HarnessError(
-                    f"{link} is a populated directory and {target} also exists; remove one"
-                )
-            link.rmdir()
-        link.parent.mkdir(parents=True, exist_ok=True)
-        link.symlink_to(Path("..") / ".." / "postgres-src" / f"v{v}")
+            raise HarnessError(f"no Postgres {v} source: neither {src} nor {dest}/configure exists")
+        if dest.is_symlink():  # layout from an earlier harness version
+            dest.unlink()
+        _mirror_tree(src, dest)
+
+
+def _mirror_tree(src: Path, dest: Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    wanted: set[Path] = set()
+    for root, dirs, files in os.walk(src):
+        rel = Path(root).relative_to(src)
+        (dest / rel).mkdir(exist_ok=True)
+        wanted.update(rel / d for d in dirs)
+        for name in files:
+            s, d = Path(root) / name, dest / rel / name
+            wanted.add(rel / name)
+            st = s.lstat()
+            if d.is_symlink() or not d.exists():
+                d.unlink(missing_ok=True)
+            else:
+                dt = d.lstat()
+                if dt.st_size == st.st_size and int(dt.st_mtime) == int(st.st_mtime):
+                    continue
+            if s.is_symlink():
+                d.symlink_to(os.readlink(s))
+            else:
+                shutil.copy2(s, d)
+    for root, dirs, files in os.walk(dest, topdown=False):
+        rel = Path(root).relative_to(dest)
+        for name in files:
+            if rel / name not in wanted:
+                (Path(root) / name).unlink()
+        for name in dirs:
+            if rel / name not in wanted:
+                shutil.rmtree(Path(root) / name)
 
 
 def build_candidate() -> float:
     """Release build of neon/ (Rust + patched Postgres). Incremental across rounds. Returns seconds."""
     if not (NEON / "Makefile").exists():
         raise HarnessError(f"{NEON} is missing the Neon source tree")
-    link_postgres_sources()
+    sync_postgres_sources()
     start = time.monotonic()
     jobs = str(os.cpu_count() or 8)
     run(

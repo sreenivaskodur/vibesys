@@ -12,9 +12,9 @@ task and its rules.
 
 | Path | Role |
 |---|---|
-| `vibesys.input.toml` | Pins the candidate: Neon `fa50421` at `neon/`, its four patched Postgres trees (submodules upstream) at `postgres-src/v1x`, and a pristine `_ref_neon/` for the durability diff. Workspace sources cannot clone into neon's empty submodule placeholders, so `benchmark/harness.py` links `neon/vendor/postgres-v1x` to `postgres-src/v1x` before each build (ignored by the root `.gitignore`). |
+| `vibesys.input.toml` | Pins the candidate: Neon `fa50421` at `neon/`, its four patched Postgres trees (submodules upstream) at `postgres-src/v1x`, and a pristine `_ref_neon/` for the durability diff. Workspace sources cannot clone into neon's empty submodule placeholders, so `benchmark/harness.py` copies `postgres-src/v1x` into `neon/vendor/postgres-v1x` before each build (changed files only; ignored by the root `.gitignore`). A symlink is not used because Postgres's VPATH configure breaks through a symlinked source dir. |
 | `objectives.toml` | `tpcc_nopm` (max), `tpcc_neworder_p95_ms` (min), `tpch_geomean_s` (min). |
-| `benchmark/benchmark.py` | Trusted benchmark. Builds `neon/`, starts a fresh cluster, runs TPROC-C (50 warehouses, 16 VU, 1+5 min) and TPROC-H (SF10, 22 queries), emits protocol-2 records. |
+| `benchmark/benchmark.py` | Trusted benchmark. Builds `neon/`, starts a fresh cluster, runs TPROC-C (50 warehouses, 16 VU, 1+5 min) and TPROC-H (SF10, 22 queries), emits protocol-2 records. About 2 hours per evaluation on unmodified Neon. |
 | `benchmark/harness.py` | Shared build, cluster and HammerDB driver, with the fixed compute settings. |
 | `benchmark/hammerdb/*.tcl` | HammerDB v6.0 CLI scripts (schema build and timed runs). |
 | `benchmark/setup_tools.sh` | Builds HammerDB, Pgtcl and ticklecharts for macOS into `~/.cache/vibesys-neon-hammerdb/tools`. |
@@ -47,8 +47,11 @@ uv run vibesys --runs-dir ~/vibesys-runs/neon-hammerdb --local --backend cpu --p
 
 Host prerequisites: Homebrew, Rust (rustup), and the packages in
 `benchmark/setup_tools.sh` (`tcl-tk libpq autoconf samply`) plus Neon's build
-dependencies (`protobuf openssl flex bison icu4c pkg-config m4`). One evaluation
-takes about 45 minutes after the first build (about 15 minutes).
+dependencies (`protobuf openssl flex bison icu4c pkg-config m4`). One full evaluation
+takes about 2 hours on unmodified Neon after the first build (about 15 minutes).
+With `NEON_HAMMERDB_QUICK=1` set when launching, `experiment.env.sh` adds a
+constraint telling the agents the run measures the quick workload, so they do
+not compare it against the full-size baselines.
 
 The macOS agent sandbox denies SysV IPC, which PostgreSQL needs on macOS, so
 sandboxed agents cannot start a cluster themselves. The trusted benchmark and
@@ -90,7 +93,10 @@ running on the same machine, which adds noise and inflates `F_FULLFSYNC`.
 | 16 VU | 93,568 | 40,253 | 8.3 / 20.0 / 37.8 ms |
 | 32 VU | 113,043 | 37,117 | 14.1 / 43.9 / 112.9 ms |
 
-TPROC-H SF10, vanilla PG17: 271 s for 22 queries, geometric mean 4.32 s.
+TPROC-H SF10: vanilla PG17 271 s for 22 queries (geometric mean 4.32 s);
+Neon 3,964 s (geometric mean 64.9 s; Q20 alone 1,422 s vs 78 s). Neon's 8 GB
+LFC held only ~1.8 GB of pages (1 MB chunks, 22% filled) with a ~2% hit rate,
+and backends spent ~84% of the time waiting on ~88 µs pageserver reads.
 
 What the profiles showed at 16 VU:
 

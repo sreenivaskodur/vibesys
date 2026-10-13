@@ -1,4 +1,4 @@
-# Links created by benchmark/harness.py: neon/vendor/postgres-v1x -> postgres-src/v1x
+# Copies made by benchmark/harness.py from postgres-src/v1x (edit postgres-src/, not these)
 /neon/vendor/postgres-v14
 /neon/vendor/postgres-v15
 /neon/vendor/postgres-v16

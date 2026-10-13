@@ -23,8 +23,9 @@ Silicon (18 cores, 64 GB, one internal NVMe SSD, APFS).
   `postgres-src/v1x/` (Neon's `vendor/postgres-v1x` submodules, pinned at the
   same commits). Any file in either may change: Rust services, the `neon`
   Postgres extension under `neon/pgxn/`, the Postgres forks, build flags.
-  The benchmark links `neon/vendor/postgres-v1x` to `postgres-src/v1x` before
-  building; edit Postgres under `postgres-src/`.
+  Before every build the benchmark copies `postgres-src/v1x` into
+  `neon/vendor/postgres-v1x` (changed files only). Edit Postgres under
+  `postgres-src/`; edits made directly in `neon/vendor/` are overwritten.
 - `_ref_neon/` is a pristine copy for comparison. Do not edit it.
 - `benchmark/` and `accuracy_checker/` are the trusted evaluator. They are
   read-only to you.
@@ -51,11 +52,13 @@ Unmodified Neon measured on this machine (single runs, noisy):
 |---|---|---|
 | `tpcc_nopm` (16 VU) | ~40,000 | ~94,000 |
 | New-Order p50 / p95 / p99 | 8.3 / 20.0 / 37.8 ms | 1.3 / 7.5 / 60.8 ms |
-| `tpch_geomean_s` | see README | 4.3 s |
+| `tpch_geomean_s` (22 queries, total) | 64.9 s (3,964 s) | 4.3 s (271 s) |
 
 Reproduce a measurement yourself with `python3 benchmark/benchmark.py --vs-output /tmp/out.jsonl`
-(about 45 minutes; `NEON_HAMMERDB_QUICK=1` runs a 5-minute smoke version that
-is not comparable).
+(about 2 hours on unmodified Neon, most of it the TPROC-H load and power run).
+`NEON_HAMMERDB_QUICK=1` runs a ~8-minute smoke version (4 warehouses, 4 VU,
+TPROC-H SF1 that fits in shared_buffers); its numbers are not comparable to
+this table and say nothing about the pageserver or LFC read path.
 
 ## Rules
 

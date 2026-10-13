@@ -20,6 +20,15 @@ VIBESYS_COMMON_FLAGS=(
   --constraint "$CONSTRAINT_DURABILITY"
 )
 
+# NEON_HAMMERDB_QUICK=1 shrinks the benchmark (benchmark/benchmark.py QUICK). The objective's
+# baseline table describes the full workload only, so a quick run must say so, or agents
+# compare quick results against full-size baselines (a phantom 40k -> 14k "regression").
+# The constraint is part of the effective objective; keep the env var identical on resume.
+if [ "${NEON_HAMMERDB_QUICK:-}" = "1" ]; then
+  CONSTRAINT_QUICK="This run measures the QUICK workload, not the one in the objective's baseline table: TPROC-C with 4 warehouses, 4 virtual users, no ramp-up and a 1-minute timed run; TPROC-H at scale factor 1, which fits entirely in shared_buffers and so never exercises the pageserver read path or the LFC. The baseline numbers in the objective do not apply. Compare only against earlier rounds of this run, and do not attribute gains on the quick TPROC-H to the pageserver or LFC paths."
+  VIBESYS_COMMON_FLAGS+=(--constraint "$CONSTRAINT_QUICK")
+fi
+
 # Agents run under the macOS Seatbelt sandbox, which denies SysV IPC; PostgreSQL on macOS
 # needs SysV semaphores, so agents cannot start a cluster to test locally while it is on.
 # The trusted benchmark and accuracy checker are unaffected (they run on the host).
