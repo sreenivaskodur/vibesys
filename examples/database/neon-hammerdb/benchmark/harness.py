@@ -65,6 +65,23 @@ def _tail(text: str, lines: int = 40) -> str:
     return "\n".join(text.splitlines()[-lines:])
 
 
+def shared_tmp_base() -> str:
+    """Base directory for the cluster, data, and dump temp dirs the trusted
+    host-side evaluator creates.
+
+    On macOS the agent runs under Seatbelt, whose private per-user ``$TMPDIR``
+    (``/var/folders/...``) the sandbox masks; the trusted evaluator and the
+    cluster it starts must share a path visible on both sides, so the global
+    ``/private/tmp`` is used. On Linux the trusted evaluator runs on the host
+    without that masking, so the ordinary temp dir (``$TMPDIR`` or ``/tmp``) is
+    correct. The previous hardcoded ``/private/tmp`` does not exist on Linux and
+    raised ``FileNotFoundError`` before any work began.
+    """
+    if sys.platform == "darwin":
+        return "/private/tmp"
+    return tempfile.gettempdir()
+
+
 def _env() -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith(SCRUBBED_ENV_PREFIXES)}
     env["GIT_VERSION"] = env.get("VIBESYS_CANDIDATE_REVISION", "candidate")
@@ -392,7 +409,7 @@ class NeonCluster:
     """A fresh neon_local cluster (broker, pageserver, safekeeper, one PG17 compute) in a temp dir."""
 
     def __init__(self) -> None:
-        self.repo = Path(tempfile.mkdtemp(prefix="vibesys-neon-", dir="/private/tmp"))
+        self.repo = Path(tempfile.mkdtemp(prefix="vibesys-neon-", dir=shared_tmp_base()))
         self.nl = NEON / "target" / "release" / "neon_local"
         self.env = _env() | {
             "NEON_REPO_DIR": str(self.repo),
@@ -453,7 +470,7 @@ class VanillaPostgres:
     """A standalone PostgreSQL 17 from the candidate's own pg_install, same settings, in a temp dir."""
 
     def __init__(self) -> None:
-        self.data = Path(tempfile.mkdtemp(prefix="vibesys-pg-", dir="/private/tmp")) / "data"
+        self.data = Path(tempfile.mkdtemp(prefix="vibesys-pg-", dir=shared_tmp_base())) / "data"
         self.bin = NEON / "pg_install" / "v17" / "bin"
         self.endpoint = Endpoint(VANILLA_PG_PORT, "postgres", self.bin)
 

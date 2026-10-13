@@ -149,7 +149,7 @@ def _query_outputs(ep: harness.Endpoint) -> dict[str, str]:
 
 
 def gate_tpch() -> None:
-    dump = Path(harness.tempfile.mkdtemp(prefix="vibesys-tpch-", dir="/private/tmp")) / "tpch.dump"
+    dump = Path(harness.tempfile.mkdtemp(prefix="vibesys-tpch-", dir=harness.shared_tmp_base())) / "tpch.dump"
     try:
         with harness.NeonCluster() as cluster:
             harness.load_tpch(cluster.endpoint, scale=1)
