@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One A/B experiment run on a fresh branch of the golden data set.
-# Usage: GOLDEN_DIR=... run_exp.sh <label> <neon_root> [tpcc|tpch|both]
+# Usage: GOLDEN_DIR=... run_exp.sh <label> <neon_root> [tpcc|tpch|both|tpchq]
+#   tpchq: time only the TPC-H queries in QUERIES (default "6 14 3 1") via psql, for fast iteration.
 #   VUS=16 RAMPUP=1 DURATION=3; EXTRA_CONF adds compute settings; NEON_* env reaches the services.
 set -uo pipefail
 LABEL=$1; NR=$2; WHAT=${3:-both}
@@ -29,14 +30,18 @@ $NL endpoint start "$BR" > "$OUT/endpoint.log" 2>&1 || { echo "endpoint start fa
   echo "EXTRA_CONF=${EXTRA_CONF:-}"; env | grep '^NEON_SAFEKEEPER\|^NEON_PAGESERVER' || true
   "$PGBIN/psql" -h 127.0.0.1 -p $PGPORT -U $PGSU -d postgres -Atc "show effective_io_concurrency; show neon.file_cache_size_limit"
 } > "$OUT/meta.txt" 2>&1
-if [ "$WHAT" != tpch ]; then
+if [ "$WHAT" = tpcc ] || [ "$WHAT" = both ]; then
   "$TOOLS_DIR/snapshot.sh" neon "$OUT/tpcc_before"
   XT=$(xtprof_log); rm -f "$XT"; hdb tpcc_run.tcl > "$OUT/tpcc_run.log"; cp "$XT" "$OUT/tpcc_latency.log" 2>/dev/null
   "$TOOLS_DIR/snapshot.sh" neon "$OUT/tpcc_after"
   grep 'TEST RESULT' "$OUT/tpcc_run.log" | sed "s/^/[$LABEL] /"
   sed -n '/SUMMARY OF/,$p' "$OUT/tpcc_latency.log" | grep -E 'PROC: NEWORD' -A2 | grep P99 | sed "s/^/[$LABEL] NEWORD /"
 fi
-if [ "$WHAT" != tpcc ]; then
+if [ "$WHAT" = tpchq ]; then
+  "$TOOLS_DIR/snapshot.sh" neon "$OUT/tpchq_before"
+  "$(dirname "$0")/tpch_queries.sh" "$OUT/tpchq.txt" ${QUERIES:-6 14 3 1} | sed "s/^/[$LABEL] /"
+  "$TOOLS_DIR/snapshot.sh" neon "$OUT/tpchq_after"
+elif [ "$WHAT" != tpcc ]; then
   "$TOOLS_DIR/snapshot.sh" neon "$OUT/tpch_before"
   hdb tpch_run.tcl > "$OUT/tpch_run.log"
   "$TOOLS_DIR/snapshot.sh" neon "$OUT/tpch_after"
