@@ -1,0 +1,378 @@
+<title>Neon vs Postgres TPC Runs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column (max ~1100px) of report sections; charts full-width, tables scroll in their own box. */
+:root {
+  --bg: #f7f8f9; --surface: #ffffff; --ink: #14181d; --ink-2: #4b535c; --ink-3: #78818b;
+  --rule: #dde1e6; --grid: #e9ecef; --chip: #eef1f4;
+  --vanilla: #2a78d6; --neon: #eb6834;
+  --good: #1a7f37; --warn: #9a6700; --bad: #c4312f;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111417; --surface: #181c20; --ink: #eef1f4; --ink-2: #b3bbc4; --ink-3: #87909a;
+    --rule: #2c3238; --grid: #252a30; --chip: #22272d;
+    --vanilla: #3987e5; --neon: #d95926; --good: #4ac26b; --warn: #d4a72c; --bad: #f47067;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111417; --surface: #181c20; --ink: #eef1f4; --ink-2: #b3bbc4; --ink-3: #87909a;
+  --rule: #2c3238; --grid: #252a30; --chip: #22272d;
+  --vanilla: #3987e5; --neon: #d95926; --good: #4ac26b; --warn: #d4a72c; --bad: #f47067;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--f-body); }
+.wrap { max-width: 1100px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: 2.1rem; font-weight: 600; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; max-width: 70ch; color: var(--ink-2); }
+.eyebrow { font: 500 0.72rem/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+header { display: grid; gap: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font: 0.78rem/1 var(--f-mono); background: var(--chip); color: var(--ink-2); padding: 6px 9px; border-radius: 4px; }
+.chip.warn { color: var(--warn); }
+section { display: grid; gap: 16px; min-width: 0; }
+.sec-head { display: grid; gap: 6px; border-top: 1px solid var(--rule); padding-top: 18px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
+.tile .k { font-size: 0.82rem; color: var(--ink-2); }
+.tile .pair { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.tile .pair b { font: 600 1.35rem/1.2 var(--f-display); }
+.tile .ratio { font: 500 0.8rem var(--f-mono); color: var(--ink-3); }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+.sw.v { background: var(--vanilla); } .sw.n { background: var(--neon); }
+.lbl { font-size: 0.8rem; color: var(--ink-2); }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.legend { display: flex; gap: 14px; font-size: 0.82rem; color: var(--ink-2); flex-wrap: wrap; }
+.chart { position: relative; height: 320px; }
+.chart.tall { height: 420px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+.seg button { font: 500 0.78rem var(--f-mono); background: transparent; color: var(--ink-2); border: 0; padding: 6px 10px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--chip); color: var(--ink); }
+.seg button:focus-visible, a:focus-visible { outline: 2px solid var(--vanilla); outline-offset: 2px; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { font: 500 0.72rem var(--f-mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); }
+th:first-child, td:first-child { text-align: left; }
+td.fn { font-family: var(--f-mono); font-size: 0.78rem; white-space: normal; word-break: break-all; text-align: left; min-width: 180px; }
+td.lib { color: var(--ink-3); font-size: 0.76rem; text-align: left; }
+td .bar { display: inline-block; height: 8px; border-radius: 0 2px 2px 0; vertical-align: middle; margin-right: 6px; }
+.slow { color: var(--bad); font-weight: 600; } .fast { color: var(--good); font-weight: 600; }
+.pending { padding: 22px; text-align: center; color: var(--ink-3); border: 1px dashed var(--rule); border-radius: 6px; font-size: 0.9rem; }
+.note { font-size: 0.84rem; color: var(--ink-2); }
+ul.caveats { margin: 0; padding-left: 18px; color: var(--ink-2); display: grid; gap: 6px; max-width: 75ch; }
+a { color: var(--vanilla); }
+.mono { font-family: var(--f-mono); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">HammerDB v6.0 · TPROC-C &amp; TPROC-H · local run</span>
+    <h1>Neon vs Postgres TPC Runs</h1>
+    <p>Vanilla PostgreSQL 17 compared with a local Neon stack (compute + pageserver + safekeeper on the same laptop), using HammerDB's TPC-derived workloads. Profiles and counters explain where the time goes.</p>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <section id="summary">
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section id="tpcc">
+    <div class="sec-head">
+      <span class="eyebrow">OLTP</span>
+      <h2>TPROC-C throughput and latency</h2>
+      <p>50 warehouses, stored procedures, 1 min ramp-up then 5 min measured per user count. NOPM counts New-Order transactions only and is the comparable figure.</p>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <div class="panel-head"><h3>New orders per minute by virtual users</h3>
+          <div class="legend"><span><i class="sw v"></i>Vanilla PG17</span><span><i class="sw n"></i>Neon</span></div></div>
+        <div class="chart"><canvas id="c-nopm" aria-label="NOPM by virtual users"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Transaction latency</h3>
+          <div class="seg" id="seg-lat-vu" role="group" aria-label="Virtual users"></div>
+          <div class="seg" id="seg-lat-p" role="group" aria-label="Percentile">
+            <button type="button" data-p="p50">p50</button><button type="button" data-p="p95">p95</button><button type="button" data-p="p99" aria-pressed="true">p99</button></div>
+        </div>
+        <div class="chart"><canvas id="c-lat" aria-label="Latency by transaction type"></canvas></div>
+        <span class="lbl">Milliseconds, log scale. NEWORD = new order, SLEV = stock level, OSTAT = order status.</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Latency detail (ms)</h3>
+      <div class="tbl" id="t-lat"></div>
+    </div>
+  </section>
+
+  <section id="tpch">
+    <div class="sec-head">
+      <span class="eyebrow">Analytics</span>
+      <h2>TPROC-H query times</h2>
+      <p>Scale factor 10, one stream running all 22 queries once, up to 8 parallel workers per query. No refresh functions, so there is no composite QphH score.</p>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Seconds per query</h3>
+        <div class="legend"><span><i class="sw v"></i>Vanilla PG17</span><span><i class="sw n"></i>Neon</span></div></div>
+      <div class="chart tall"><canvas id="c-tpch" aria-label="TPROC-H seconds per query"></canvas></div>
+      <span class="lbl">Seconds, log scale.</span>
+    </div>
+    <div class="panel"><h3>Per-query comparison</h3><div class="tbl" id="t-tpch"></div></div>
+  </section>
+
+  <section id="internals">
+    <div class="sec-head">
+      <span class="eyebrow">Counters</span>
+      <h2>Where the work went</h2>
+      <p>Differences between snapshots taken just before and after each run. Neon-only rows come from the <span class="mono">neon</span> extension: page requests to the pageserver, the local file cache (LFC) and write backpressure.</p>
+    </div>
+    <div class="panel"><h3>Per-run counters</h3><div class="tbl" id="t-counters"></div></div>
+    <div class="panel">
+      <div class="panel-head"><h3>Neon page-request wait distribution</h3><div class="seg" id="seg-hist" role="group" aria-label="Run"></div></div>
+      <div class="chart"><canvas id="c-hist" aria-label="Getpage wait histogram"></canvas></div>
+      <span class="lbl">Share of page requests from compute to the pageserver that finished within each latency band.</span>
+    </div>
+  </section>
+
+  <section id="profiles">
+    <div class="sec-head">
+      <span class="eyebrow">Profiles</span>
+      <h2>CPU and wall-clock profiles</h2>
+      <p>30-second samply captures after ramp-up, taken during the 16-user TPROC-C run and the TPROC-H run. <em>Self CPU</em> is where CPU time was spent. <em>Wall-clock, inclusive</em> includes time spent waiting, which is where Neon's commit and page-fetch waits show up.</p>
+    </div>
+    <div class="panel-head">
+      <div class="seg" id="seg-prof-run" role="group" aria-label="Capture"></div>
+      <div class="seg" id="seg-prof-view" role="group" aria-label="View">
+        <button type="button" data-v="self_cpu" aria-pressed="true">Self CPU</button><button type="button" data-v="incl_wall">Wall-clock, inclusive</button><button type="button" data-v="self_wall">Wall-clock, self</button></div>
+    </div>
+    <div class="grid2" id="prof-grid"></div>
+    <div id="flame"></div>
+  </section>
+
+  <section id="method">
+    <div class="sec-head"><span class="eyebrow">Method</span><h2>How these numbers were produced</h2></div>
+    <ul class="caveats" id="caveats"></ul>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script>
+const DATA = /*__DATA__*/null;
+const T = DATA.targets, V = T.vanilla || null, N = T.neon || null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = (x, d = 0) => x == null || isNaN(x) ? "–" : Number(x).toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d });
+const ratio = (a, b) => (a && b) ? b / a : null;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const charts = {};
+const TXN = ["NEWORD", "PAYMENT", "DELIVERY", "SLEV", "OSTAT"];
+
+function seg(el, items, cur, onPick) {
+  el.innerHTML = items.map(([v, l]) => `<button type="button" data-k="${esc(v)}" aria-pressed="${v == cur}">${esc(l)}</button>`).join("");
+  el.onclick = e => { const b = e.target.closest("button"); if (!b) return;
+    el.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); onPick(b.dataset.k); };
+}
+function segStatic(el, attr, onPick) {
+  el.onclick = e => { const b = e.target.closest("button"); if (!b) return;
+    el.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); onPick(b.dataset[attr]); };
+}
+function pending(id, msg) { document.getElementById(id).innerHTML = `<div class="pending">${esc(msg)}</div>`; }
+
+function baseOpts(extra = {}) {
+  const ink2 = css("--ink-2"), grid = css("--grid");
+  return Object.assign({
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: { legend: { display: false },
+      tooltip: { backgroundColor: css("--surface"), titleColor: css("--ink"), bodyColor: css("--ink-2"), borderColor: css("--rule"), borderWidth: 1, padding: 10,
+        titleFont: { family: "JetBrains Mono" }, bodyFont: { family: "JetBrains Mono" } } },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: ink2, font: { family: "JetBrains Mono", size: 11 } }, border: { color: css("--rule") } },
+      y: { grid: { color: grid }, ticks: { color: ink2, font: { family: "JetBrains Mono", size: 11 } }, border: { display: false } } }
+  }, extra);
+}
+const barDs = (label, data, color) => ({ label, data, backgroundColor: color, borderRadius: { topLeft: 4, topRight: 4 }, borderSkipped: "bottom", maxBarThickness: 34, categoryPercentage: 0.7, barPercentage: 0.9 });
+function draw(id, cfg) { const el = document.getElementById(id); if (!el) return; if (charts[id]) charts[id].destroy(); charts[id] = new Chart(el, cfg); }
+
+/* ---------- header chips & tiles ---------- */
+function header() {
+  const s = (V || N || {}).server || {};
+  const chips = [`${s.version || "PostgreSQL 17"}`, `shared_buffers ${s.shared_buffers || "2GB"}`, N?.server?.lfc_size ? `Neon LFC ${N.server.lfc_size}` : null,
+    DATA.meta.machine, DATA.meta.neon_revision ? `neon @ ${DATA.meta.neon_revision}` : null].filter(Boolean);
+  const warn = ["Single run, no repeats", "Profilers active (latency + 16-VU / TPC-H captures)", ...(DATA.meta.notes || [])];
+  document.getElementById("chips").innerHTML = chips.map(c => `<span class="chip">${esc(c)}</span>`).join("") + warn.map(c => `<span class="chip warn">${esc(c)}</span>`).join("");
+
+  const vus = [...new Set([...Object.keys(V?.tpcc || {}), ...Object.keys(N?.tpcc || {})])].map(Number).sort((a, b) => a - b);
+  const pick = vus.includes(16) ? 16 : vus[vus.length - 1];
+  const tile = (k, a, b, unit, d, lowerBetter) => {
+    const r = ratio(a, b);
+    const rtxt = r == null ? "Neon pending" : lowerBetter ? `Neon takes ${fmt(r, 2)}× as long` : `Neon reaches ${fmt(r * 100, 0)}% of vanilla`;
+    return `<div class="tile"><span class="k">${esc(k)}</span><div class="pair"><span class="lbl"><i class="sw v"></i>Vanilla</span><b>${fmt(a, d)}${unit}</b><span class="lbl"><i class="sw n"></i>Neon</span><b>${fmt(b, d)}${unit}</b></div><span class="ratio">${rtxt}</span></div>`;
+  };
+  document.getElementById("tiles").innerHTML = [
+    tile(`TPROC-C NOPM at ${pick ?? "–"} users`, V?.tpcc?.[pick]?.nopm, N?.tpcc?.[pick]?.nopm, "", 0, false),
+    tile(`New-order p99 at ${pick ?? "–"} users`, V?.tpcc?.[pick]?.latency?.NEWORD?.p99, N?.tpcc?.[pick]?.latency?.NEWORD?.p99, " ms", 2, true),
+    tile("TPROC-H geometric mean", V?.tpch?.geomean_s, N?.tpch?.geomean_s, " s", 2, true),
+    tile("TPROC-H total, 22 queries", V?.tpch?.total_s, N?.tpch?.total_s, " s", 0, true),
+  ].join("");
+}
+
+/* ---------- TPROC-C ---------- */
+let latVu = null, latP = "p99";
+function tpcc() {
+  const vus = [...new Set([...Object.keys(V?.tpcc || {}), ...Object.keys(N?.tpcc || {})])].map(Number).sort((a, b) => a - b);
+  if (!vus.length) { ["c-nopm", "c-lat"].forEach(id => document.getElementById(id).parentElement.innerHTML = '<div class="pending">TPROC-C results pending</div>'); pending("t-lat", "Pending"); return; }
+  draw("c-nopm", { type: "bar", data: { labels: vus.map(v => `${v} VU`), datasets: [
+      barDs("Vanilla PG17", vus.map(v => V?.tpcc?.[v]?.nopm ?? null), css("--vanilla")),
+      barDs("Neon", vus.map(v => N?.tpcc?.[v]?.nopm ?? null), css("--neon"))] },
+    options: baseOpts({ plugins: { ...baseOpts().plugins, tooltip: { ...baseOpts().plugins.tooltip, callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw)} NOPM` } } } }) });
+  if (!vus.includes(latVu)) latVu = vus.includes(16) ? 16 : vus[0];
+  seg(document.getElementById("seg-lat-vu"), vus.map(v => [v, `${v} VU`]), latVu, k => { latVu = +k; latChart(); });
+  segStatic(document.getElementById("seg-lat-p"), "p", p => { latP = p; latChart(); });
+  latChart();
+  // detail table
+  let h = `<table><thead><tr><th>Transaction</th><th>VU</th><th>Vanilla p50</th><th>p95</th><th>p99</th><th>max</th><th>Neon p50</th><th>p95</th><th>p99</th><th>max</th><th>Neon / vanilla p99</th></tr></thead><tbody>`;
+  for (const t of TXN) for (const v of vus) {
+    const a = V?.tpcc?.[v]?.latency?.[t] || {}, b = N?.tpcc?.[v]?.latency?.[t] || {};
+    const r = ratio(a.p99, b.p99);
+    h += `<tr><td>${t}</td><td>${v}</td><td>${fmt(a.p50, 3)}</td><td>${fmt(a.p95, 3)}</td><td>${fmt(a.p99, 3)}</td><td>${fmt(a.max, 1)}</td><td>${fmt(b.p50, 3)}</td><td>${fmt(b.p95, 3)}</td><td>${fmt(b.p99, 3)}</td><td>${fmt(b.max, 1)}</td><td class="${r > 2 ? "slow" : r && r < 1 ? "fast" : ""}">${r == null ? "–" : fmt(r, 1) + "×"}</td></tr>`;
+  }
+  document.getElementById("t-lat").innerHTML = h + "</tbody></table>";
+}
+function latChart() {
+  draw("c-lat", { type: "bar", data: { labels: TXN, datasets: [
+      barDs("Vanilla PG17", TXN.map(t => V?.tpcc?.[latVu]?.latency?.[t]?.[latP] ?? null), css("--vanilla")),
+      barDs("Neon", TXN.map(t => N?.tpcc?.[latVu]?.latency?.[t]?.[latP] ?? null), css("--neon"))] },
+    options: (() => { const o = baseOpts(); o.scales.y.type = "logarithmic"; o.scales.y.ticks.callback = v => [0.01,0.1,1,10,100,1000,10000].includes(+v) ? v + " ms" : "";
+      o.plugins.tooltip.callbacks = { label: c => `${c.dataset.label}: ${fmt(c.raw, 3)} ms ${latP}` }; return o; })() });
+}
+
+/* ---------- TPROC-H ---------- */
+function tpch() {
+  const qs = Array.from({ length: 22 }, (_, i) => i + 1);
+  if (!V?.tpch && !N?.tpch) { document.getElementById("c-tpch").parentElement.innerHTML = '<div class="pending">TPROC-H results pending</div>'; pending("t-tpch", "Pending"); return; }
+  draw("c-tpch", { type: "bar", data: { labels: qs.map(q => `Q${q}`), datasets: [
+      barDs("Vanilla PG17", qs.map(q => V?.tpch?.queries?.[q] ?? null), css("--vanilla")),
+      barDs("Neon", qs.map(q => N?.tpch?.queries?.[q] ?? null), css("--neon"))] },
+    options: (() => { const o = baseOpts(); o.scales.y.type = "logarithmic"; o.scales.y.ticks.callback = v => [0.01,0.1,1,10,100,1000].includes(+v) ? v + " s" : "";
+      o.plugins.tooltip.callbacks = { label: c => `${c.dataset.label}: ${fmt(c.raw, 2)} s` }; return o; })() });
+  const rows = qs.map(q => ({ q, a: V?.tpch?.queries?.[q], b: N?.tpch?.queries?.[q] })).map(r => ({ ...r, r: ratio(r.a, r.b) }));
+  let h = `<table><thead><tr><th>Query</th><th>Vanilla (s)</th><th>Neon (s)</th><th>Neon / vanilla</th><th>Difference (s)</th></tr></thead><tbody>`;
+  for (const r of rows) h += `<tr><td>Q${r.q}</td><td>${fmt(r.a, 2)}</td><td>${fmt(r.b, 2)}</td><td class="${r.r > 1.5 ? "slow" : r.r && r.r < 0.9 ? "fast" : ""}">${r.r == null ? "–" : fmt(r.r, 2) + "×"}</td><td>${r.a != null && r.b != null ? fmt(r.b - r.a, 2) : "–"}</td></tr>`;
+  h += `<tr><td><b>Total</b></td><td><b>${fmt(V?.tpch?.total_s)}</b></td><td><b>${fmt(N?.tpch?.total_s)}</b></td><td>${ratio(V?.tpch?.total_s, N?.tpch?.total_s) ? fmt(ratio(V.tpch.total_s, N.tpch.total_s), 2) + "×" : "–"}</td><td></td></tr>`;
+  h += `<tr><td><b>Geometric mean</b></td><td><b>${fmt(V?.tpch?.geomean_s, 3)}</b></td><td><b>${fmt(N?.tpch?.geomean_s, 3)}</b></td><td>${ratio(V?.tpch?.geomean_s, N?.tpch?.geomean_s) ? fmt(ratio(V.tpch.geomean_s, N.tpch.geomean_s), 2) + "×" : "–"}</td><td></td></tr>`;
+  document.getElementById("t-tpch").innerHTML = h + "</tbody></table>";
+}
+
+/* ---------- counters ---------- */
+function runs() {
+  const out = [];
+  const vus = [...new Set([...Object.keys(V?.tpcc || {}), ...Object.keys(N?.tpcc || {})])].map(Number).sort((a, b) => a - b);
+  for (const v of vus) out.push({ key: `tpcc${v}`, label: `TPROC-C ${v} VU`, db: "tpcc", v: V?.tpcc?.[v]?.delta, n: N?.tpcc?.[v]?.delta });
+  if (V?.tpch || N?.tpch) out.push({ key: "tpch", label: "TPROC-H", db: "tpch", v: V?.tpch?.delta, n: N?.tpch?.delta });
+  return out;
+}
+function counters() {
+  const R = runs();
+  if (!R.length) { pending("t-counters", "Pending"); return; }
+  const hit = (d, db) => d && (d[`db.${db}.blks_hit`] + d[`db.${db}.blks_read`]) ? 100 * d[`db.${db}.blks_hit`] / (d[`db.${db}.blks_hit`] + d[`db.${db}.blks_read`]) : null;
+  const walPer = (d, db) => d && d[`db.${db}.xact_commit`] ? d["wal.wal_bytes"] / d[`db.${db}.xact_commit`] : null;
+  const gpAvg = d => d && d["pc.getpage_wait_seconds_count"] ? 1000 * d["pc.getpage_wait_seconds_sum"] / d["pc.getpage_wait_seconds_count"] : null;
+  const lfcHit = d => d && (d["lfc.file_cache_hits"] + d["lfc.file_cache_misses"]) ? 100 * d["lfc.file_cache_hits"] / (d["lfc.file_cache_hits"] + d["lfc.file_cache_misses"]) : null;
+  const pref = d => d && (d["pc.getpage_prefetch_requests_total"] + d["pc.getpage_sync_requests_total"]) ? 100 * d["pc.getpage_prefetch_requests_total"] / (d["pc.getpage_prefetch_requests_total"] + d["pc.getpage_sync_requests_total"]) : null;
+  const metrics = [
+    ["Commits", (d, db) => d?.[`db.${db}.xact_commit`], 0, "both"],
+    ["Shared-buffer hit rate (%)", hit, 2, "both"],
+    ["WAL written (MB)", d => d?.["wal.wal_bytes"] / 1048576, 0, "both"],
+    ["WAL per commit (bytes)", walPer, 0, "both"],
+    ["Full-page images", d => d?.["wal.wal_fpi"], 0, "both"],
+    ["Page requests to pageserver", d => d?.["pc.getpage_wait_seconds_count"], 0, "neon"],
+    ["Avg page-request wait (ms)", gpAvg, 3, "neon"],
+    ["Prefetched share of page requests (%)", pref, 1, "neon"],
+    ["LFC hit rate (%)", lfcHit, 2, "neon"],
+    ["LFC evicted pages", d => d?.["lfc.file_cache_evicted_pages"], 0, "neon"],
+    ["Write backpressure throttling (ms)", d => d?.["bp.throttling_us"] / 1000, 1, "neon"],
+  ];
+  let h = `<table><thead><tr><th>Counter</th>${R.map(r => `<th colspan="${2}">${esc(r.label)}</th>`).join("")}</tr><tr><th></th>${R.map(() => `<th>Vanilla</th><th>Neon</th>`).join("")}</tr></thead><tbody>`;
+  for (const [name, f, d, scope] of metrics) {
+    h += `<tr><td>${esc(name)}</td>` + R.map(r => `<td>${scope === "neon" ? "·" : fmt(f(r.v, r.db), d)}</td><td>${fmt(f(r.n, r.db), d)}</td>`).join("") + "</tr>";
+  }
+  document.getElementById("t-counters").innerHTML = h + "</tbody></table>";
+  const withHist = R.filter(r => r.n && r.n["pc.getpage_wait_seconds_count"]);
+  if (!withHist.length) { document.getElementById("c-hist").parentElement.innerHTML = '<div class="pending">Neon results pending</div>'; return; }
+  let cur = withHist.find(r => r.key === "tpch") ? "tpch" : withHist[0].key;
+  seg(document.getElementById("seg-hist"), withHist.map(r => [r.key, r.label]), cur, k => { cur = k; hist(withHist.find(r => r.key === k)); });
+  hist(withHist.find(r => r.key === cur));
+}
+function hist(r) {
+  const b = Object.entries(r.n).filter(([k]) => k.startsWith("pc.getpage_wait_seconds_bucket@")).map(([k, v]) => [k.split("@")[1], v])
+    .filter(([le]) => le !== "Infinity").map(([le, v]) => [parseFloat(le), v]).sort((a, b) => a[0] - b[0]);
+  const total = r.n["pc.getpage_wait_seconds_count"];
+  const labels = [], vals = []; let prev = 0;
+  for (const [le, cum] of b) { const n = cum - prev; prev = cum; labels.push(le < 1e-3 ? `≤${fmt(le * 1e6)} µs` : le < 1 ? `≤${fmt(le * 1e3, le < 0.01 ? 1 : 0)} ms` : `≤${fmt(le)} s`); vals.push(total ? 100 * n / total : 0); }
+  draw("c-hist", { type: "bar", data: { labels, datasets: [barDs("Neon", vals, css("--neon"))] },
+    options: (() => { const o = baseOpts(); o.scales.y.ticks.callback = v => v + "%"; o.plugins.tooltip.callbacks = { label: c => `${fmt(c.raw, 2)}% of ${fmt(total)} requests` }; return o; })() });
+}
+
+/* ---------- profiles ---------- */
+let profRun = null, profView = "self_cpu";
+const PROC_LABEL = { pg_backend: "Postgres backend (busiest)", pageserver: "Pageserver", safekeeper: "Safekeeper" };
+function profiles() {
+  const runsP = [...new Set([...Object.keys(V?.profiles || {}), ...Object.keys(N?.profiles || {})])];
+  if (!runsP.length) { pending("prof-grid", "Profiles pending"); return; }
+  const nice = k => k.startsWith("tpcc_vu") ? `TPROC-C ${k.replace("tpcc_vu", "")} VU` : k === "tpch" ? "TPROC-H" : k;
+  if (!runsP.includes(profRun)) profRun = runsP[0];
+  seg(document.getElementById("seg-prof-run"), runsP.map(k => [k, nice(k)]), profRun, k => { profRun = k; profGrid(); });
+  segStatic(document.getElementById("seg-prof-view"), "v", v => { profView = v; profGrid(); });
+  profGrid();
+}
+function profTable(title, color, p) {
+  if (!p) return `<div class="panel"><h3>${esc(title)}</h3><div class="pending">No capture</div></div>`;
+  const rows = p[profView] || [];
+  const max = Math.max(...rows.map(r => r.pct), 1);
+  const name = r => /^0x[0-9a-f]+$/i.test(r.fn) ? `${r.lib} +${r.fn}` : r.fn;
+  return `<div class="panel"><div class="panel-head"><h3>${esc(title)}</h3><span class="lbl mono">${fmt(p.samples)} samples · ${fmt(p.cpu_ms / 1000, 1)} CPU-s · ${p.threads} threads</span></div>
+    <div class="tbl"><table><thead><tr><th>Function</th><th>%</th><th>Library</th></tr></thead><tbody>${rows.map(r =>
+      `<tr><td class="fn">${esc(name(r))}</td><td><span class="bar" style="width:${Math.round(60 * r.pct / max)}px;background:${color}"></span>${fmt(r.pct, 1)}</td><td class="lib">${esc(r.lib)}</td></tr>`).join("")}</tbody></table></div></div>`;
+}
+function profGrid() {
+  const pv = V?.profiles?.[profRun], pn = N?.profiles?.[profRun];
+  const cards = [profTable("Vanilla · " + PROC_LABEL.pg_backend, "var(--vanilla)", pv?.pg_backend), profTable("Neon · " + PROC_LABEL.pg_backend, "var(--neon)", pn?.pg_backend)];
+  if (pn?.pageserver) cards.push(profTable("Neon · Pageserver", "var(--neon)", pn.pageserver));
+  if (pn?.safekeeper) cards.push(profTable("Neon · Safekeeper", "var(--neon)", pn.safekeeper));
+  document.getElementById("prof-grid").innerHTML = cards.join("");
+  const fl = document.getElementById("flame");
+  fl.innerHTML = pn?.flamegraph ? `<div class="panel"><div class="panel-head"><h3>Pageserver flame graph (built-in profiler)</h3><a href="${esc(pn.flamegraph)}" target="_blank" rel="noopener">Open interactive SVG</a></div><div class="tbl"><img src="${esc(pn.flamegraph)}" alt="Pageserver CPU flame graph" style="min-width:900px;width:100%"></div></div>` : "";
+}
+
+function caveats() {
+  const items = [
+    `Both targets ran on one machine (${DATA.meta.machine}). Neon's compute, pageserver, safekeeper and storage broker all shared it, so there is no network latency and every component competes for the same CPU and disk.`,
+    ...(DATA.meta.notes || []),
+    "Each configuration ran once. Differences under about 10% are within run-to-run noise.",
+    "Identical settings on both: shared_buffers 2GB, max_wal_size 8GB, work_mem 64MB, 8 parallel workers per query. Neon additionally has an 8 GB local file cache. Vanilla also benefits from the macOS page cache.",
+    "HammerDB's xtprof latency profiler was on for every TPROC-C run. samply and the pageserver profiler ran for 30 seconds during the 16-VU and TPROC-H runs only, so those runs carry slightly more overhead.",
+    "TPROC-C and TPROC-H are derived from TPC-C and TPC-H. They are not audited TPC results and are not comparable with published TPC figures.",
+  ];
+  if (DATA.meta.chain) items.push("Run log: " + DATA.meta.chain.join(" · "));
+  document.getElementById("caveats").innerHTML = items.map(t => `<li>${esc(t)}</li>`).join("");
+}
+
+function renderAll() { header(); tpcc(); tpch(); counters(); profiles(); caveats(); }
+renderAll();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>

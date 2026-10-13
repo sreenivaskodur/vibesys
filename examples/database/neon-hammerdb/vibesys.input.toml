@@ -1,0 +1,59 @@
+version = 1
+
+[agent]
+domain = "database"
+
+[accuracy]
+command = ["python3", "accuracy_checker/checker.py"]
+timeout_seconds = 10800
+
+[benchmark]
+command = ["python3", "benchmark/benchmark.py"]
+timeout_seconds = 14400
+result_protocol = 2
+
+# Candidate: upstream Neon, plus its four patched Postgres trees (git submodules
+# upstream; workspace sources do not initialize submodules, so each is pinned here
+# at the commit recorded in neon's vendor/revisions.json).
+[[workspace.sources]]
+name = "neon"
+repo = "https://github.com/neondatabase/neon"
+commit = "fa504217c61bbcaf5c512d75830564541f917f8f"
+dest = "neon"
+strip_git = true
+
+[[workspace.sources]]
+name = "postgres_v17"
+repo = "https://github.com/neondatabase/postgres"
+commit = "1e01fcea2a6b38180021aa83e0051d95286d9096"
+dest = "neon/vendor/postgres-v17"
+strip_git = true
+
+[[workspace.sources]]
+name = "postgres_v16"
+repo = "https://github.com/neondatabase/postgres"
+commit = "a42351fcd41ea01edede1daed65f651e838988fc"
+dest = "neon/vendor/postgres-v16"
+strip_git = true
+
+[[workspace.sources]]
+name = "postgres_v15"
+repo = "https://github.com/neondatabase/postgres"
+commit = "2aaab3bb4a13557aae05bb2ae0ef0a132d0c4f85"
+dest = "neon/vendor/postgres-v15"
+strip_git = true
+
+[[workspace.sources]]
+name = "postgres_v14"
+repo = "https://github.com/neondatabase/postgres"
+commit = "2155cb165d05f617eb2c8ad7e43367189b627703"
+dest = "neon/vendor/postgres-v14"
+strip_git = true
+
+# Pristine copy for the accuracy checker's durability diff.
+[[workspace.sources]]
+name = "ref_neon"
+repo = "https://github.com/neondatabase/neon"
+commit = "fa504217c61bbcaf5c512d75830564541f917f8f"
+dest = "_ref_neon"
+strip_git = true

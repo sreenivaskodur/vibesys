@@ -1,0 +1,43 @@
+diff --git a/generic/pgtclId.c b/generic/pgtclId.c
+index eda4ade..3250e29 100644
+--- a/generic/pgtclId.c
++++ b/generic/pgtclId.c
+@@ -178,10 +178,26 @@ PgGetHandleProc(ClientData instanceData, int direction,
+ 	return TCL_ERROR;
+ }
+ 
++#if TCL_MAJOR_VERSION >= 9
++/* Tcl 9 requires TCL_CHANNEL_VERSION_5 and close2Proc instead of closeProc */
++static int
++PgClose2Proc(void *instanceData, Tcl_Interp *interp, int flags)
++{
++	if ((flags & (TCL_CLOSE_READ | TCL_CLOSE_WRITE)) != 0)
++		return EINVAL;
++	return PgDelConnectionId(instanceData, interp);
++}
++#endif
++
+ Tcl_ChannelType Pg_ConnType = {
+     "pgsql",             /* channel type */
++#if TCL_MAJOR_VERSION >= 9
++    TCL_CHANNEL_VERSION_5,
++    NULL,                /* closeproc (must be NULL in Tcl 9) */
++#else
+     NULL,                /* blockmodeproc */
+     PgDelConnectionId,   /* closeproc */
++#endif
+     PgInputProc,         /* inputproc */
+     PgOutputProc,        /* outputproc */
+     NULL,                /* SeekProc, Not used */
+@@ -189,7 +205,11 @@ Tcl_ChannelType Pg_ConnType = {
+     NULL,                /* GetOptionProc, Not used */
+     PgWatchProc,         /* WatchProc, must be defined */
+     PgGetHandleProc,     /* GetHandleProc, must be defined */
++#if TCL_MAJOR_VERSION >= 9
++    PgClose2Proc,        /* Close2Proc */
++#else
+     NULL,                /* Close2Proc, Not used */
++#endif
+     NULL,                /* blockModeProc, Not used */
+     NULL,                /* flushProc */
+     NULL,                /* handlerProc */

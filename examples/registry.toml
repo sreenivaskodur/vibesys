@@ -90,6 +90,10 @@ path = "examples/database/differential-dataflow"
 layout = "legacy"
 
 [[example]]
+path = "examples/database/neon-hammerdb"
+layout = "legacy"
+
+[[example]]
 path = "examples/kv-store"
 layout = "task"
 

@@ -1,0 +1,16 @@
+# Throughput first (headline), then commit latency and analytic query time.
+[[objective]]
+name = "tpcc_nopm"
+direction = "max"
+
+[[objective]]
+name = "tpcc_neworder_p95_ms"
+direction = "min"
+
+[[objective]]
+name = "tpch_geomean_s"
+direction = "min"
+
+[pareto]
+# Single runs on a laptop that shares disk and CPU across all Neon services.
+relative_noise = 0.05
