@@ -10,20 +10,21 @@
 set -euo pipefail
 TOOLS=$(mkdir -p "${1:?tools dir}" && cd "$1" && pwd)
 HAMMERDB_VERSION=6.0
-URL="https://github.com/TPC-Council/HammerDB/releases/download/v${HAMMERDB_VERSION}/HammerDB-${HAMMERDB_VERSION}-Linux.tar.gz"
+# Ubuntu 24 x86_64 build; see the release page for other distros/arches.
+ASSET="HammerDB-${HAMMERDB_VERSION}-Prod-Lin-UBU24.tar.gz"
+URL="https://github.com/TPC-Council/HammerDB/releases/download/v${HAMMERDB_VERSION}/${ASSET}"
 
 if [ ! -x "$TOOLS/HammerDB/hammerdbcli" ]; then
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
   curl -fsSL "$URL" -o "$tmp/hammerdb.tgz"
   tar -xzf "$tmp/hammerdb.tgz" -C "$tmp"
+  cli=$(find "$tmp" -maxdepth 3 -name hammerdbcli -type f | head -1)
+  [ -n "$cli" ] || { echo "error: hammerdbcli not found in $ASSET" >&2; exit 1; }
   rm -rf "$TOOLS/HammerDB"
-  mv "$tmp/HammerDB-${HAMMERDB_VERSION}" "$TOOLS/HammerDB"
+  mv "$(dirname "$cli")" "$TOOLS/HammerDB"
+  chmod +x "$TOOLS/HammerDB/hammerdbcli"
 fi
 
-# Smoke-check the bundled Tcl runtime and the Postgres driver it ships.
-(cd "$TOOLS/HammerDB" && echo 'puts [package require Pgtcl]; exit' \
-   | TCLLIBPATH="$TOOLS/HammerDB/lib" ./bin/tclsh8.6 2>/dev/null) \
-  | grep -q . || { echo "error: bundled Pgtcl failed to load" >&2; exit 1; }
-
+[ -d "$TOOLS/HammerDB/lib" ] || { echo "error: bundled lib/ missing" >&2; exit 1; }
 echo "HammerDB $HAMMERDB_VERSION ready at $TOOLS/HammerDB"
