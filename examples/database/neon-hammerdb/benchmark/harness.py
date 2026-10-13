@@ -22,6 +22,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -67,15 +68,12 @@ def _tail(text: str, lines: int = 40) -> str:
 def _env() -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith(SCRUBBED_ENV_PREFIXES)}
     env["GIT_VERSION"] = env.get("VIBESYS_CANDIDATE_REVISION", "candidate")
-    brew_paths = [f"{_brew_prefix(p)}/bin" for p in ("libpq", "bison", "flex")]
-    env["PATH"] = ":".join(
-        [
-            *brew_paths,
-            str(Path.home() / ".cargo" / "bin"),
-            "/opt/homebrew/opt/rustup/bin",
-            env["PATH"],
-        ]
-    )
+    extra_paths = [str(Path.home() / ".cargo" / "bin")]
+    if sys.platform == "darwin":
+        # Homebrew keeps libpq/bison/flex out of PATH; Linux installs them system-wide.
+        brew_paths = [f"{_brew_prefix(p)}/bin" for p in ("libpq", "bison", "flex")]
+        extra_paths = [*brew_paths, *extra_paths, "/opt/homebrew/opt/rustup/bin"]
+    env["PATH"] = ":".join([*extra_paths, env["PATH"]])
     return env
 
 
@@ -109,12 +107,21 @@ def run(
 
 
 def ensure_tools() -> None:
-    """Build HammerDB + Pgtcl + ticklecharts into TOOLS_DIR once (shared across rounds)."""
-    if (TOOLS_DIR / "lib" / "pgtcl" / "pkgIndex.tcl").exists() and (
-        TOOLS_DIR / "HammerDB" / "hammerdbcli"
-    ).exists():
+    """Install the HammerDB toolchain into TOOLS_DIR once (shared across rounds).
+
+    macOS builds HammerDB + Pgtcl + ticklecharts from source (no macOS release
+    exists); Linux extracts HammerDB's release tarball, which bundles Tcl,
+    pgtcl, and ticklecharts.
+    """
+    have_cli = (TOOLS_DIR / "HammerDB" / "hammerdbcli").exists()
+    if sys.platform == "darwin":
+        if have_cli and (TOOLS_DIR / "lib" / "pgtcl" / "pkgIndex.tcl").exists():
+            return
+        run(["bash", str(HERE / "setup_tools.sh"), str(TOOLS_DIR)], timeout=1800)
         return
-    run(["bash", str(HERE / "setup_tools.sh"), str(TOOLS_DIR)], timeout=1800)
+    if have_cli:
+        return
+    run(["bash", str(HERE / "setup_tools_linux.sh"), str(TOOLS_DIR)], timeout=1800)
 
 
 PG_VERSIONS = ("14", "15", "16", "17")
@@ -187,10 +194,12 @@ def hammerdb(script: str, env_extra: dict[str, str], *, timeout: float) -> str:
 
 
 def xtprof_log_path() -> Path:
-    tmp = subprocess.run(
-        ["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True, check=True
-    ).stdout.strip()
-    return Path(tmp) / "hdbxtprofile.log"
+    if sys.platform == "darwin":
+        tmp = subprocess.run(
+            ["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        return Path(tmp) / "hdbxtprofile.log"
+    return Path(tempfile.gettempdir()) / "hdbxtprofile.log"
 
 
 @dataclass(frozen=True)
