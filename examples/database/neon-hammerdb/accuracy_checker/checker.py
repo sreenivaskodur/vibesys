@@ -5,11 +5,12 @@ Gates, in order (cheapest first):
 1. durability  Static diff of neon/ against the pristine _ref_neon/: rejects changes
                that weaken how WAL or data reach stable storage (safekeeper flush
                primitive, no-sync defaults, compute commit settings).
+   build       The candidate must compile (a build failure is a defect, exit 1).
 2. pg-regress  PostgreSQL 17's own regression suite (`make check`) on the candidate's
                patched Postgres.
 3. tpch        TPC-H scale factor 1 loaded into a Neon cluster; the 22 queries must
-               return byte-identical results on Neon and on a standalone Postgres
-               restored from a dump of the same data.
+               return the same rows (as multisets) on Neon and on a standalone
+               Postgres restored from a dump of the same data.
 4. tpcc        A short TPROC-C run on Neon, then the four TPC-C consistency
                conditions, before and after an immediate (crash) compute restart.
 """
@@ -17,7 +18,6 @@ Gates, in order (cheapest first):
 from __future__ import annotations
 
 import difflib
-import hashlib
 import re
 import sys
 from pathlib import Path
@@ -135,12 +135,17 @@ def gate_pg_regress() -> None:
         raise Defect(f"PostgreSQL regression suite failed:\n{e}") from e
 
 
-def _query_digests(ep: harness.Endpoint) -> dict[str, str]:
-    out = {}
-    for q in sorted(HERE.glob("tpch_queries/*.sql"), key=lambda p: int(p.stem)):
-        rows = ep.psql_file(q, db="tpch")
-        out[q.stem] = hashlib.sha256(rows.encode()).hexdigest()
-    return out
+def _query_outputs(ep: harness.Endpoint) -> dict[str, str]:
+    """Each query's rows, sorted: results are compared as multisets.
+
+    Row order is not compared because ORDER BY ties (e.g. Q11's equal values)
+    legitimately come back in plan-dependent order under parallel workers;
+    ordering itself is covered by the pg-regress gate.
+    """
+    return {
+        q.stem: "\n".join(sorted(ep.psql_file(q, db="tpch").splitlines()))
+        for q in sorted(HERE.glob("tpch_queries/*.sql"), key=lambda p: int(p.stem))
+    }
 
 
 def gate_tpch() -> None:
@@ -148,7 +153,7 @@ def gate_tpch() -> None:
     try:
         with harness.NeonCluster() as cluster:
             harness.load_tpch(cluster.endpoint, scale=1)
-            neon = _query_digests(cluster.endpoint)
+            neon = _query_outputs(cluster.endpoint)
             harness.run(
                 [
                     str(cluster.endpoint.pg_bin / "pg_dump"),
@@ -185,13 +190,25 @@ def gate_tpch() -> None:
                 ],
                 timeout=1800,
             )
-            vanilla = _query_digests(pg.endpoint)
+            vanilla = _query_outputs(pg.endpoint)
     finally:
         harness.shutil.rmtree(dump.parent, ignore_errors=True)
     wrong = [q for q in vanilla if neon.get(q) != vanilla[q]]
     if wrong:
+        diffs = []
+        for q in wrong:
+            diff = difflib.unified_diff(
+                vanilla[q].splitlines(),
+                neon.get(q, "").splitlines(),
+                f"Q{q} standalone",
+                f"Q{q} neon",
+                lineterm="",
+                n=0,
+            )
+            diffs.append("\n".join(list(diff)[:20]))
         raise Defect(
-            f"TPC-H results differ between Neon and standalone Postgres for queries {', '.join(wrong)}"
+            f"TPC-H results differ between Neon and standalone Postgres for queries {', '.join(wrong)}:\n"
+            + "\n".join(diffs)
         )
 
 
