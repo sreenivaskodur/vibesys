@@ -159,6 +159,7 @@ class ServerParts:
         log_dir: Path,
         *,
         record: RunRecord | None = None,
+        run_id: str | None = None,
     ) -> None:
         """Attach the integration and core event journal to durable state.
 
@@ -166,11 +167,17 @@ class ServerParts:
         does for its own `events` journal in production: this harness has no
         session, so `core_events` needs its own attach call to write
         ``core-events.jsonl`` under *log_dir*.
+
+        *run_id* stands in for the identity a `RunRecord` supplies when a test
+        needs a durable run without building one. With neither, the journal is
+        attached like the server's pre-run session journal: no run identity.
         """
+        if record is None and run_id is not None:
+            self.journal.attach(log_dir, run_id=run_id)
         self.integration.attach(log_dir, record=record)
         self.core_events.attach(
             log_dir,
-            record.run_id if record is not None else log_dir.parent.name,
+            record.run_id if record is not None else run_id or log_dir.parent.name,
         )
 
     def close(self) -> None:
@@ -193,6 +200,7 @@ def build_server_parts(
     log_dir: Path | None = None,
     *,
     record: RunRecord | None = None,
+    run_id: str | None = None,
     tui_defaults: Callable[[], InteractiveSetupDefaults] | None = None,
     chat_agent_builder: ChatAgentBuilder | None = None,
 ) -> ServerParts:
@@ -242,5 +250,5 @@ def build_server_parts(
         control=control,
     )
     if log_dir is not None:
-        parts.attach(log_dir, record=record)
+        parts.attach(log_dir, record=record, run_id=run_id)
     return parts

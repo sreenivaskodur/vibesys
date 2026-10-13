@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import itertools
 import json
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from tests.server.support import build_server_parts
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from tests.server.support import ServerParts, build_server_parts
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
 
+from server.api.protocol import SnapshotQuery
 from server.diagnostics import (
     DiagnosticRetryability,
     DiagnosticScope,
@@ -376,3 +380,45 @@ def test_terminal_wrapper_reuses_cause_diagnostic(tmp_path: Path) -> None:
     assert terminal.diagnostic.detail == (
         "RuntimeError: run cleanup failed <- RuntimeError: token=[REDACTED] agent process exited"
     )
+
+
+def _identities(parts: ServerParts) -> tuple[set[str], str, str]:
+    """Run identity as events, the snapshot query, and a subscription bootstrap report it."""
+    snapshot = parts.api.execute(SnapshotQuery()).snapshot
+    assert snapshot is not None
+    bootstrap = parts.api.subscription_bootstrap(0, None)
+    return {event.run_id for event in parts.journal.read()}, snapshot.run_id, bootstrap.run_id
+
+
+def test_pre_run_session_journal_in_macos_temp_dir_has_no_run_identity(tmp_path: Path) -> None:
+    """Regression: the TUI launcher's session dir is $TMPDIR/vibesys-session-*, and
+    macOS's $TMPDIR ends in /T. The server's pre-run journal there used to stamp
+    run_id "T", which clients latched before rejecting the real run's events."""
+    session = build_server_parts(tmp_path / "T" / "vibesys-session-abc123")
+    session.journal.record(EventType.SERVER_READY, status=EventStatus.ACTIVE)
+
+    assert _identities(session) == ({""}, "", "")
+
+    session.attach(tmp_path / "runs" / "run-1" / "logs", run_id="run-1")
+    session.journal.record(EventType.RUN_STARTED, status=EventStatus.ACTIVE)
+
+    assert _identities(session) == ({"run-1"}, "run-1", "run-1")
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    parents=st.lists(
+        st.text(
+            alphabet="abcdefghijklmnopqrstuvwxyzT0123456789-_.", min_size=1, max_size=12
+        ).filter(lambda name: name not in {".", ".."}),
+        min_size=1,
+        max_size=3,
+    )
+)
+def test_journal_never_derives_run_identity_from_its_directory(parents: list[str]) -> None:
+    """Whatever directory a record-less journal lives in, it claims no run."""
+    with tempfile.TemporaryDirectory() as tmp:
+        session = build_server_parts(Path(tmp).joinpath(*parents, "session"))
+        session.journal.record(EventType.SERVER_READY, status=EventStatus.ACTIVE)
+
+        assert _identities(session) == ({""}, "", "")

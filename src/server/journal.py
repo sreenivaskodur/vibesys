@@ -165,8 +165,13 @@ class WireJournal:
                 self.log_dir = log_dir
                 self._read_only = read_only
                 return
+            # Without an explicit run id there is no run yet: the pre-run session
+            # journal lives beside the control socket, and a directory name there
+            # (macOS's per-user temp dir ends in ``/T``) is not a run identity.
+            # Clients latch the first non-empty run_id they fold, so inventing one
+            # here made them reject the real run's events once it attached.
             durable = (
-                EventStore(events_path, run_id=run_id or log_dir.parent.name)
+                EventStore(events_path, run_id=run_id or "")
                 if not read_only
                 else EventStore(events_path, run_id="", read_only=True)
             )
