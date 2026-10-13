@@ -248,24 +248,37 @@ class FakeProjectMaterializationEffects:
 class FakeGitRunner:
     """In-memory command effect for pinned project-source checkouts."""
 
-    def __init__(self, *, head: str, fail_command: str | None = None) -> None:
-        """Configure the resolved commit and optional failing Git command."""
+    def __init__(
+        self, *, head: str, fail_command: str | None = None, serves_commit_by_id: bool = True
+    ) -> None:
+        """Configure the resolved commit and optional failing Git command.
+
+        ``serves_commit_by_id=False`` models a remote that refuses a shallow fetch of
+        an unadvertised commit id, as some Git servers do.
+        """
         self.head = head
         self.fail_command = fail_command
+        self.serves_commit_by_id = serves_commit_by_id
         self.calls: list[tuple[tuple[str, ...], Path]] = []
 
     def __call__(self, args: Sequence[str], cwd: Path) -> str:
-        """Apply clone/checkout/rev-parse semantics without a subprocess."""
+        """Apply clone/init/remote/fetch/checkout/rev-parse semantics without a subprocess."""
         command = args[0]
         self.calls.append((tuple(args), cwd))
         if command == self.fail_command:
             message = f"git {command} failed: configured fake failure"
             raise RuntimeError(message)
-        if command == "clone":
+        if command in {"clone", "init"}:
             destination = Path(args[-1])
             (destination / ".git").mkdir(parents=True)
             return ""
-        if command == "checkout":
+        if command in {"remote", "fetch", "checkout"} and not (cwd / ".git").is_dir():
+            message = f"git {command} failed: not a git repository: {cwd}"
+            raise RuntimeError(message)
+        if command == "fetch" and "--depth" in args and not self.serves_commit_by_id:
+            message = "git fetch failed: Server does not allow request for unadvertised object"
+            raise RuntimeError(message)
+        if command in {"remote", "fetch", "checkout"}:
             return ""
         if command == "rev-parse":
             return f"{self.head}\n"

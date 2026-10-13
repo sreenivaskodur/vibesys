@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -278,8 +279,7 @@ class ProjectMaterializer:
             raise ValueError(message)
         dest.parent.mkdir(parents=True, exist_ok=True)
 
-        self._git_runner(["clone", "--no-checkout", source.repo, str(dest)], self.root)
-        self._git_runner(["checkout", "--detach", source.commit], dest)
+        self._checkout_pinned(source, dest)
         actual = self._git_runner(["rev-parse", "HEAD"], dest).strip().lower()
         expected = source.commit.lower()
         if actual != expected and not actual.startswith(expected):
@@ -304,6 +304,30 @@ class ProjectMaterializer:
 
         if source.strip_git:
             shutil.rmtree(dest / ".git")
+
+    def _checkout_pinned(self, source: WorkspaceSourceValue, dest: Path) -> None:
+        """Check out ``source.commit`` at ``dest``, fetching as little as the pin allows.
+
+        A source whose ``.git`` is stripped keeps no history, so a full object id is
+        fetched alone (depth 1). An abbreviated id cannot be fetched by name, and a
+        kept ``.git`` should keep its history, so both clone in full. Servers that
+        refuse to serve an unadvertised commit get the same full fetch a clone does.
+        The caller verifies the resulting HEAD against the pin on every path.
+        """
+        if not (source.strip_git and _FULL_OBJECT_ID.fullmatch(source.commit)):
+            self._git_runner(["clone", "--no-checkout", source.repo, str(dest)], self.root)
+            self._git_runner(["checkout", "--detach", source.commit], dest)
+            return
+        self._git_runner(["init", "--quiet", str(dest)], self.root)
+        self._git_runner(["remote", "add", "origin", source.repo], dest)
+        try:
+            self._git_runner(["fetch", "--quiet", "--depth", "1", "origin", source.commit], dest)
+        except RuntimeError:
+            self._log(f"{source.repo} refused a fetch by commit id; fetching all refs instead")
+            self._git_runner(["fetch", "--quiet", "--tags", "origin"], dest)
+            self._git_runner(["checkout", "--detach", source.commit], dest)
+            return
+        self._git_runner(["checkout", "--detach", "FETCH_HEAD"], dest)
 
     def relocate_copied_tree(self, spec: ProjectTreeCopy, *, copied_from: Path) -> None:
         """Move a source tree copied with its parent into its canonical location.
@@ -525,6 +549,9 @@ class ProjectMaterializer:
             shutil.rmtree(path)
         elif path.exists() or path.is_symlink():
             path.unlink()
+
+
+_FULL_OBJECT_ID = re.compile(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
 
 
 def _run_git(args: Sequence[str], cwd: Path) -> str:

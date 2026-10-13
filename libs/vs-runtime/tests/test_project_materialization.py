@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from vs_runtime.api.infrastructure import (
     FreshProjectError,
@@ -36,12 +39,14 @@ def _materializer(
     )
 
 
-def _source(*, dest: str = "library", strip_git: bool = True) -> GitSourceMaterialization:
+def _source(
+    *, dest: str = "library", strip_git: bool = True, commit: str = "0123456"
+) -> GitSourceMaterialization:
     return GitSourceMaterialization(
         name="library",
         source=WorkspaceSourceValue(
             repo="https://example.invalid/library.git",
-            commit="0123456",
+            commit=commit,
             dest=dest,
             strip_git=strip_git,
         ),
@@ -276,3 +281,70 @@ def test_git_source_records_resolved_commit_and_strips_metadata(tmp_path: Path) 
             "strip_git": True,
         }
     ]
+
+
+FULL_SHA1 = "1e01fcea2a6b38180021aa83e0051d95286d9096"
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    commit=st.text(alphabet="0123456789abcdefABCDEF", min_size=7, max_size=64),
+    strip_git=st.booleans(),
+)
+def test_git_source_fetches_only_the_pin_when_history_is_discarded(
+    commit: str, *, strip_git: bool
+) -> None:
+    """Shallow fetch exactly when .git is stripped and the pin is a full object id."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "workspace"
+        root.mkdir()
+        git = FakeGitRunner(head=commit.lower())
+
+        _materializer(root, git=git).materialize_git_source(
+            _source(commit=commit, strip_git=strip_git)
+        )
+
+        commands = [args for args, _cwd in git.calls]
+        shallow = strip_git and len(commit) in {40, 64}
+        if shallow:
+            assert commands[0][0] == "init"
+            assert ("fetch", "--quiet", "--depth", "1", "origin", commit) in commands
+            assert all(args[0] != "clone" for args in commands)
+        else:
+            assert commands[0][:2] == ("clone", "--no-checkout")
+            assert all(args[0] != "fetch" for args in commands)
+        assert commands[-1] == ("rev-parse", "HEAD")
+        assert (root / "library" / ".git").exists() is not strip_git
+        recorded = json.loads((root / "_vibesys_sources.json").read_text())
+        assert recorded[0]["commit"] == commit.lower()
+
+
+def test_git_source_falls_back_to_full_fetch_when_server_refuses_commit_id(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    git = FakeGitRunner(head=FULL_SHA1, serves_commit_by_id=False)
+
+    _materializer(root, git=git).materialize_git_source(_source(commit=FULL_SHA1))
+
+    assert [args for args, _cwd in git.calls][-4:] == [
+        ("fetch", "--quiet", "--depth", "1", "origin", FULL_SHA1),
+        ("fetch", "--quiet", "--tags", "origin"),
+        ("checkout", "--detach", FULL_SHA1),
+        ("rev-parse", "HEAD"),
+    ]
+    assert not (root / "library" / ".git").exists()
+
+
+def test_shallow_git_source_still_rejects_checkout_that_differs_from_pin(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    git = FakeGitRunner(head="f" * 40)
+
+    with pytest.raises(RuntimeError, match=f"expected {FULL_SHA1}"):
+        _materializer(root, git=git).materialize_git_source(_source(commit=FULL_SHA1))
+
+    assert not (root / "_vibesys_sources.json").exists()
